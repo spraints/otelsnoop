@@ -27,20 +27,14 @@ type dump struct {
 }
 
 func (d *dump) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s, err := httputil.DumpRequest(r, false)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-
+	m := &bytes.Buffer{}
+	if r.Method == "POST" && r.URL.Path == "/traces/otlp/v0.9" && r.Header.Get("Content-Type") == "application/x-protobuf" {
 	body, err := io.ReadAll(getBodyReader(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	m := &bytes.Buffer{}
-	if r.Method == "POST" && r.URL.Path == "/traces/otlp/v0.9" && r.Header.Get("Content-Type") == "application/x-protobuf" {
 		t := &tracepb.TracesData{}
 		if err := proto.Unmarshal(body, t); err != nil {
 			fmt.Fprintf(m, "error parsing body (%d bytes): %v", len(body), err)
@@ -61,10 +55,16 @@ func (d *dump) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		fmt.Fprintln(m, "unrecognized request")
+          s, err := httputil.DumpRequest(r, false)
+          if err != nil {
+                  http.Error(w, err.Error(), 500)
+                  return
+          }
+          fmt.Fprintf(m, "%s\n", s)
 	}
 
 	d.lock.Lock()
-	fmt.Printf("%s\n%s\n", s, m.Bytes())
+	fmt.Printf("%s", m.Bytes())
 	d.lock.Unlock()
 }
 
