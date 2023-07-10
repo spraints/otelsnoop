@@ -51,7 +51,10 @@ func (d *dump) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprintf(m, "- %s %v\n", ss.GetSchemaUrl(), ss.GetScope())
 					for _, s := range ss.GetSpans() {
 						//   + trace_id:"!v\xcay[\x17\x9a\xe3\xd7\x14\xf8\x19\x8a\xf4g\x05"  span_id:"^ÑT;˹\x8e"  name:"HTTP POST"  kind:SPAN_KIND_CLIENT  start_time_unix_nano:1689026248178653295  end_time_unix_nano:1689026253188301775  attributes:{key:"http.method"  value:{string_value:"POST"}}  attributes:{key:"http.url"  value:{string_value:"http://localhost:18081/twirp/aqueduct.api.v1.JobQueueService/Receive"}}  attributes:{key:"net.peer.name"  value:{string_value:"localhost"}}  attributes:{key:"http.status_code"  value:{int_value:200}}  status:{}
-						fmt.Fprintf(m, "  + %v\n", s)
+						fmt.Fprintf(m, "  [%d %v] %q\n", s.GetStartTimeUnixNano(), s.GetKind(), s.GetName())
+						for _, a := range s.GetAttributes() {
+							fmt.Fprintf(m, "  + %v\n", a)
+						}
 					}
 				}
 			}
