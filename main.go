@@ -2,13 +2,15 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"sync"
 
-	"google.golang.org/protobuf/encoding/protowire"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func main() {
@@ -31,19 +33,24 @@ func (d *dump) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(getBodyReader(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	var m bytes.Buffer
-	if r.Header.Get("Content-Type") == "application/x-protobuf" {
-		if err := decodeProto(body, &m, ""); err != nil {
-			fmt.Printf("%s\nbody:\n%s\n", s, body)
-			http.Error(w, err.Error(), 500)
-			return
+	m := &bytes.Buffer{}
+	if r.Method == "POST" && r.URL.Path == "/traces/otlp/v0.9" && r.Header.Get("Content-Type") == "application/x-protobuf" {
+		t := &tracepb.TracesData{}
+		if err := proto.Unmarshal(body, t); err != nil {
+			fmt.Fprintf(m, "error parsing body (%d bytes): %v", len(body), err)
+		} else {
+			for _, s := range t.GetResourceSpans() {
+				fmt.Fprintln(m, s)
+			}
 		}
+	} else {
+		fmt.Fprintln(m, "unrecognized request")
 	}
 
 	d.lock.Lock()
@@ -51,33 +58,12 @@ func (d *dump) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d.lock.Unlock()
 }
 
-func decodeProto(data []byte, w io.Writer, indent string) error {
-	remaining := data
-	for len(remaining) > 0 {
-		fieldNum, wireType, n := protowire.ConsumeTag(remaining)
-		if n < 0 {
-			return fmt.Errorf("failed to consume tag: %w", protowire.ParseError(n))
-		}
-		remaining = remaining[n:]
-
-		fmt.Fprintf(w, "fieldNum: %v %T\nwireType: %v\n", fieldNum, fieldNum, wireType)
-		switch wireType {
-		case protowire.VarintType:
-			fmt.Fprintln(w, "varint")
-		case protowire.Fixed32Type:
-			fmt.Fprintln(w, "fixed32")
-		case protowire.Fixed64Type:
-			fmt.Fprintln(w, "fixed64")
-		case protowire.BytesType:
-			fmt.Fprintln(w, "bytes")
-		case protowire.StartGroupType:
-			fmt.Fprintln(w, "start group")
-		case protowire.EndGroupType:
-			fmt.Fprintln(w, "end group")
-		default:
-			//return fmt.Errorf("invalid wire type")
-		}
-		break
+func getBodyReader(r *http.Request) io.Reader {
+	switch r.Header.Get("Content-Encoding") {
+	case "gzip":
+		r, _ := gzip.NewReader(r.Body)
+		return r
+	default:
+		return r.Body
 	}
-	return nil
 }
